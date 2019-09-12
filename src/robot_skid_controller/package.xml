@@ -55,6 +55,7 @@
      <depend>sensor_msgs</depend>
      <depend>tf</depend>
      <depend>nav_msgs</depend>
+     <depend>eigen_conversions</depend>
 
 
 
