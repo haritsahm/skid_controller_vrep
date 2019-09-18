@@ -3,8 +3,10 @@
 #include <eigen3/Eigen/Eigen>
 #include <vector>
 #include <algorithm>
+#include <yaml-cpp/yaml.h>
 
 #include <ros/ros.h>
+#include <ros/param.h>
 #include <sensor_msgs/JointState.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Pose.h>
@@ -38,242 +40,286 @@ using namespace Eigen;
 class SkidController
 {
 public:
-    ros::NodeHandle node_handle_;
-    ros::NodeHandle private_node_handle_;
+  ros::NodeHandle node_handle_;
+  ros::NodeHandle private_node_handle_;
 
-    // Robot model
-    std::string robot_model_;
+  // Robot model
+  std::string robot_model_;
 
-    // Topics - skid - velocity
-    std::string frw_vel_topic_;
-    std::string flw_vel_topic_;
-    std::string brw_vel_topic_;
-    std::string blw_vel_topic_;
+  // Topics - skid - velocity
+  std::string frw_vel_topic_;
+  std::string flw_vel_topic_;
+  std::string brw_vel_topic_;
+  std::string blw_vel_topic_;
 
-    // Joint names - skid - velocity
-    std::string joint_front_right_wheel;
-    std::string joint_front_left_wheel;
-    std::string joint_back_left_wheel;
-    std::string joint_back_right_wheel;
+  // Joint names - skid - velocity
+  std::string joint_front_right_wheel;
+  std::string joint_front_left_wheel;
+  std::string joint_back_left_wheel;
+  std::string joint_back_right_wheel;
 
-    // Joint names - ptz - position
-    std::string joint_camera_pan;
-    std::string joint_camera_tilt;
+  // Joint names - ptz - position
+  std::string joint_camera_pan;
+  std::string joint_camera_tilt;
 
-    // Topics - ptz
-    std::string pan_pos_topic_;
-    std::string tilt_pos_topic_;
+  // Topics - ptz
+  std::string pan_pos_topic_;
+  std::string tilt_pos_topic_;
 
-    // Velocity and position references to low level controllers
-    ros::Publisher ref_vel_flw_, ref_vel_frw_, ref_vel_blw_, ref_vel_brw_;
-    ros::Publisher ref_pos_pan_, ref_pos_tilt_;
+  // Velocity and position references to low level controllers
+  ros::Publisher ref_vel_flw_, ref_vel_frw_, ref_vel_blw_, ref_vel_brw_;
+  ros::Publisher ref_pos_pan_, ref_pos_tilt_;
 
 
-    // Indexes to joint_states
-    int frw_vel_, flw_vel_, blw_vel_, brw_vel_;
-    int pan_pos_, tilt_pos_;
+  // Indexes to joint_states
+  int frw_vel_, flw_vel_, blw_vel_, brw_vel_;
+  int pan_pos_, tilt_pos_;
 
-    // Robot Speeds
-    Eigen::Vector3d curr_vel;
-    Eigen::Quaterniond curr_orientation;
+  // Robot Speeds
+  Eigen::Vector3d curr_vel;
+  Eigen::Quaterniond curr_orientation;
 
-    // Joint states published by the joint_state_controller of the Controller Manager
-    ros::Subscriber joint_state_sub_;
+  // Joint states published by the joint_state_controller of the Controller Manager
+  ros::Subscriber joint_state_sub_;
 
-    // Robot Joint States
-    sensor_msgs::JointState joint_state_;
-    geometry_msgs::PoseStamped robot_pose_;
-    geometry_msgs::Point robot_pos;
+  // Robot Joint States
+  sensor_msgs::JointState joint_state_;
+  geometry_msgs::PoseStamped robot_pose_;
+  geometry_msgs::Point robot_pos;
 
-    // Command reference
-    geometry_msgs::Twist base_vel_msg_;
+  // Command reference
+  geometry_msgs::Twist base_vel_msg_;
 
-    // Robot configuration parameters
-    double summit_xl_wheel_diameter_;
-    double summit_xl_d_tracks_m_;
-    double summit_xl_wheelbase_;
-    double summit_xl_trackwidth_;
+  // Robot configuration parameters
+  double summit_xl_wheel_diameter_;
+  double summit_xl_d_tracks_m_;
+  double summit_xl_wheelbase_;
+  double summit_xl_trackwidth_;
 
-    // Parameter that defines if odom tf is published or not
-    bool publish_odom_tf_;
+  // Parameter that defines if odom tf is published or not
+  bool publish_odom_tf_;
 
-    // Publisher for odom topic
-    ros::Publisher odom_pub_;
+  // Publisher for odom topic
+  ros::Publisher odom_pub_;
 
-    // Broadcaster for odom tf
-    tf::TransformBroadcaster odom_broadcaster;
+  // Broadcaster for odom tf
+  tf::TransformBroadcaster odom_broadcaster;
 
-    // path trajectory point
-    std::vector<Eigen::Vector3d> traj_point;
-    Eigen::Vector3d vel_law;
-    int num_points, current_index;
-    bool finished;
-    double rho, gamma;
-    double k_1, k_2;
-    double C, v_max;
+  // path trajectory point
+  std::vector<Eigen::Vector3d> traj_point;
+  Eigen::Vector3d vel_law;
+  int num_points, current_index;
+  bool finished;
+  double rho, gamma;
+  double k_1, k_2;
+  double C, v_max;
+  bool stop;
 
-    SkidController(ros::NodeHandle h) :
-        node_handle_(h),  private_node_handle_("~")
+  SkidController(ros::NodeHandle h) :
+    node_handle_(h),  private_node_handle_("~")
+  {
+    ros::NodeHandle summit_xl_robot_control_node_handle(node_handle_, "robot_skid_controller");
+
+    string config_path = "";
+    node_handle_.param<std::string>("config_file_path", config_path, "");
+    loadConfig(config_path);
+    // Skid configuration - topics
+    private_node_handle_.param<std::string>("frw_vel_topic", frw_vel_topic_, "/summit_xl_robot_control/joint_frw_velocity_controller/command");
+    private_node_handle_.param<std::string>("flw_vel_topic", flw_vel_topic_, "/summit_xl_robot_control/joint_flw_velocity_controller/command");
+    private_node_handle_.param<std::string>("blw_vel_topic", blw_vel_topic_, "/summit_xl_robot_control/joint_blw_velocity_controller/command");
+    private_node_handle_.param<std::string>("brw_vel_topic", brw_vel_topic_, "/summit_xl_robot_control/joint_brw_velocity_controller/command");
+
+    // Skid configuration - Joint names
+    private_node_handle_.param<std::string>("joint_front_right_wheel", joint_front_right_wheel, "joint_front_right_wheel");
+    private_node_handle_.param<std::string>("joint_front_left_wheel", joint_front_left_wheel, "joint_front_left_wheel");
+    private_node_handle_.param<std::string>("joint_back_left_wheel", joint_back_left_wheel, "joint_back_left_wheel");
+    private_node_handle_.param<std::string>("joint_back_right_wheel", joint_back_right_wheel, "joint_back_right_wheel");
+
+    // PTZ topics
+    private_node_handle_.param<std::string>("joint_camera_pan", joint_camera_pan, "joint_camera_pan");
+    private_node_handle_.param<std::string>("joint_camera_tilt", joint_camera_tilt, "joint_camera_tilt");
+
+//    private_node_handle_.param("publish_odom_tf", publish_odom_tf_, false);
+//    if (publish_odom_tf_) ROS_INFO("PUBLISHING odom->base_footprin tf");
+//    else ROS_INFO("NOT PUBLISHING odom->base_footprint tf");
+
+    // Subscribe to joint states topic
+    joint_state_sub_ = summit_xl_robot_control_node_handle.subscribe<sensor_msgs::JointState>("/summit_xl/joint_states", 1, &SkidController::jointStateCallback, this);
+
+    // Adevertise reference topics for the controllers
+    ref_vel_frw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_frw_velocity_controller/command", 50);
+    ref_vel_flw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_flw_velocity_controller/command", 50);
+    ref_vel_blw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_blw_velocity_controller/command", 50);
+    ref_vel_brw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_brw_velocity_controller/command", 50);
+
+    ref_pos_pan_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_pan_position_controller/command", 50);
+    ref_pos_tilt_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_tilt_position_controller/command", 50);
+
+    odom_pub_ = summit_xl_robot_control_node_handle.advertise<nav_msgs::Odometry>("/summit_xl/odom", 1000);
+
+    // Subscribe to command topic
+    //      cmd_sub_ = summit_xl_robot_control_node_handle.subscribe<geometry_msgs::Twist>("command", 1, &SummitXLControllerClass::commandCallback, this);
+    initialize();
+  }
+
+  void loadConfig(const string path)
+  {
+    std::cout << "Found Path : " << path.c_str() << std::endl;
+    YAML::Node config = YAML::LoadFile(path.c_str());
+    YAML::Node robot_config = config["robot_config"];
+    YAML::Node robot_control = config["robot_control"];
+
+
+    summit_xl_wheel_diameter_ = robot_config["wheel_diameter"].as<double>();
+    summit_xl_d_tracks_m_ =  robot_config["track_dist"].as<double>();
+
+    C = robot_control["C"].as<double>();
+    k_1 = robot_control["k_1"].as<double>();
+    k_2 = robot_control["k_2"].as<double>();
+    v_max = robot_control["v_max"].as<double>();
+
+  }
+
+  void initialize()
+  {
+    ROS_INFO("SummitXLControllerClass::starting");
+
+    std::vector<string> joint_names = joint_state_.name;
+    frw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_front_right_wheel)) - joint_names.begin();
+    flw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_front_left_wheel)) - joint_names.begin();
+    blw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_back_left_wheel)) - joint_names.begin();
+    brw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_back_right_wheel)) - joint_names.begin();
+
+    // For publishing the ptz joint state
+    pan_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_pan)) - joint_names.begin();
+    tilt_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_tilt)) - joint_names.begin();
+
+    traj_point.push_back(Vector3d(1,0,0));
+    traj_point.push_back(Vector3d(1.5,0,0));
+    traj_point.push_back(Vector3d(3,0,0));
+    traj_point.push_back(Vector3d(5,0,0));
+    traj_point.push_back(Vector3d(7,0,0));
+    traj_point.push_back(Vector3d(10,0,0));
+
+
+    num_points = traj_point.size();
+    current_index = 0;
+    finished = false;
+    rho = gamma = 0;
+  }
+
+  void jointStateCallback(const sensor_msgs::JointStateConstPtr& msg)
+  {
+    joint_state_ = *msg;
+  }
+
+  void robotPoscallback(const geometry_msgs::PoseStampedConstPtr& msg)
+  {
+    robot_pose_ = *msg;
+    robot_pos = robot_pose_.pose.position;
+  }
+
+  void updateControl()
+  {
+    double robot_heading = tf::getYaw(robot_pose_.pose.orientation);
+    rho = SGN(robot_pos.x)*sqrt(pow(robot_pos.x,2)+pow(robot_pos.y,2));
+    gamma = atan((SGN(robot_pos.x)*robot_pos.y)/abs(robot_pos.x))-robot_heading;
+
+    vel_law.x() =rho*(k_2*(gamma+robot_heading)*sin(gamma)-k_1*cos(gamma));
+    vel_law.z() = (rho/XICR)*(k_2*(gamma+robot_heading)*cos(gamma)+k_1*sin(gamma));
+
+
+    //adaptif
+    double Vl = vel_law.x() + -C*vel_law.z();
+    double Vr = vel_law.x() + C*vel_law.z();
+
+    double vreq = max(abs(Vl), abs(Vr));
+    double corr_factor = v_max/vreq;
+
+    if(corr_factor<1)
     {
-        ros::NodeHandle summit_xl_robot_control_node_handle(node_handle_, "robot_skid_controller");
-
-        // Get robot model from the parameters
-        if (!private_node_handle_.getParam("model", robot_model_)) {
-            ROS_ERROR("Robot model not defined.");
-            exit(-1);
-        }
-        else ROS_INFO("Robot Model : %s", robot_model_.c_str());
-
-        // Skid configuration - topics
-        private_node_handle_.param<std::string>("frw_vel_topic", frw_vel_topic_, "/summit_xl/joint_frw_velocity_controller/command");
-        private_node_handle_.param<std::string>("flw_vel_topic", flw_vel_topic_, "/summit_xl/joint_flw_velocity_controller/command");
-        private_node_handle_.param<std::string>("blw_vel_topic", blw_vel_topic_, "/summit_xl/joint_blw_velocity_controller/command");
-        private_node_handle_.param<std::string>("brw_vel_topic", brw_vel_topic_, "/summit_xl/joint_brw_velocity_controller/command");
-
-        // Skid configuration - Joint names
-        private_node_handle_.param<std::string>("joint_front_right_wheel", joint_front_right_wheel, "joint_front_right_wheel");
-        private_node_handle_.param<std::string>("joint_front_left_wheel", joint_front_left_wheel, "joint_front_left_wheel");
-        private_node_handle_.param<std::string>("joint_back_left_wheel", joint_back_left_wheel, "joint_back_left_wheel");
-        private_node_handle_.param<std::string>("joint_back_right_wheel", joint_back_right_wheel, "joint_back_right_wheel");
-
-        // PTZ topics
-        private_node_handle_.param<std::string>("joint_camera_pan", joint_camera_pan, "joint_camera_pan");
-        private_node_handle_.param<std::string>("joint_camera_tilt", joint_camera_tilt, "joint_camera_tilt");
-
-        // Robot parameters
-        if (!private_node_handle_.getParam("summit_xl_wheel_diameter", summit_xl_wheel_diameter_))
-            summit_xl_wheel_diameter_ = SUMMIT_XL_WHEEL_DIAMETER;
-        if (!private_node_handle_.getParam("summit_xl_d_tracks_m", summit_xl_d_tracks_m_))
-            summit_xl_d_tracks_m_ = SUMMIT_XL_D_TRACKS_M;
-        ROS_INFO("summit_xl_wheel_diameter_ = %5.2f", summit_xl_wheel_diameter_);
-        ROS_INFO("summit_xl_d_tracks_m_ = %5.2f", summit_xl_d_tracks_m_);
-
-        private_node_handle_.param("publish_odom_tf", publish_odom_tf_, true);
-        if (publish_odom_tf_) ROS_INFO("PUBLISHING odom->base_footprin tf");
-        else ROS_INFO("NOT PUBLISHING odom->base_footprint tf");
-
-        // Subscribe to joint states topic
-        joint_state_sub_ = summit_xl_robot_control_node_handle.subscribe<sensor_msgs::JointState>("/summit_xl/joint_states", 1, &SkidController::jointStateCallback, this);
-
-        // Adevertise reference topics for the controllers
-        ref_vel_frw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl/joint_frw_velocity_controller/command", 50);
-        ref_vel_flw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl/joint_flw_velocity_controller/command", 50);
-        ref_vel_blw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl/joint_blw_velocity_controller/command", 50);
-        ref_vel_brw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl/joint_brw_velocity_controller/command", 50);
-
-        ref_pos_pan_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl/joint_pan_position_controller/command", 50);
-        ref_pos_tilt_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl/joint_tilt_position_controller/command", 50);
-
-        odom_pub_ = summit_xl_robot_control_node_handle.advertise<nav_msgs::Odometry>("/summit_xl/odom", 1000);
-
-        // Subscribe to command topic
-        //      cmd_sub_ = summit_xl_robot_control_node_handle.subscribe<geometry_msgs::Twist>("command", 1, &SummitXLControllerClass::commandCallback, this);
-
+      vel_law.x() =rho*((k_2*corr_factor)*(gamma+robot_heading)*sin(gamma)-(k_1*corr_factor)*cos(gamma));
+      vel_law.z() = (rho/XICR)*((k_2*corr_factor)*(gamma+robot_heading)*cos(gamma)+(k_1*corr_factor)*sin(gamma));
     }
-    void initialize()
+  }
+
+  Vector3d getNextPoint()
+  {
+    return traj_point[current_index];
+  }
+
+  void publishSpeed()
+  {
+    // Axis are not reversed in the omni (swerve) configuration
+    std_msgs::Float64 fr_ref_msg;
+    std_msgs::Float64 fl_ref_msg;
+
+    if(!stop)
     {
-        ROS_INFO("SummitXLControllerClass::starting");
-
-        std::vector<string> joint_names = joint_state_.name;
-        frw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_front_right_wheel)) - joint_names.begin();
-        flw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_front_left_wheel)) - joint_names.begin();
-        blw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_back_left_wheel)) - joint_names.begin();
-        brw_vel_ = find (joint_names.begin(),joint_names.end(), string(joint_back_right_wheel)) - joint_names.begin();
-
-        // For publishing the ptz joint state
-        pan_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_pan)) - joint_names.begin();
-        tilt_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_tilt)) - joint_names.begin();
-
-        num_points = traj_point.size();
-        current_index = 0;
-        finished = false;
-        rho = gamma = 0;
-        k_1 = 1.2; k_2 = 1.5; C = 0.1435; v_max = 0.3;
+      fl_ref_msg.data = (vel_law.x() + -C*vel_law.z())/(summit_xl_wheel_diameter_*0.5);
+      fr_ref_msg.data = (vel_law.x() + C*vel_law.z())/(summit_xl_wheel_diameter_*0.5);
     }
 
-
-
-
-    void jointStateCallback(const sensor_msgs::JointStateConstPtr& msg)
+    else
     {
-        joint_state_ = *msg;
+      fr_ref_msg.data = 0;
+      fl_ref_msg.data = 0;
     }
 
-    void robotPoscallback(const geometry_msgs::PoseStampedConstPtr& msg)
+    ref_vel_frw_.publish( fr_ref_msg );
+    ref_vel_flw_.publish( fl_ref_msg );
+    ref_vel_blw_.publish( fl_ref_msg );
+    ref_vel_brw_.publish( fr_ref_msg );
+  }
+
+  void mainLoop()
+  {
+    ros::Rate r(50);  // 50.0
+
+    while(ros::ok())
     {
-        robot_pose_ = *msg;
-        robot_pos = robot_pose_.pose.position;
-    }
+      Vector3d ref_point;
 
-    void updateControl(const Eigen::Vector3d& err_traj)
-    {
-        double robot_heading = tf::getYaw(robot_pose_.pose.orientation);
-        rho = SGN(robot_pos.x)*sqrt(pow(robot_pos.x,2)+pow(robot_pos.y,2));
-        gamma = atan((SGN(robot_pos.x)*robot_pos.y)/abs(robot_pos.x))-robot_heading;
+      if(finished)
+      {
+        ref_point = getNextPoint();
+        finished=false;
+      }
 
-        vel_law.x() =rho*(k_2*(gamma+robot_heading)*sin(gamma)-k_1*cos(gamma));
-        vel_law.z() = (rho/XICR)*(k_2*(gamma+robot_heading)*cos(gamma)+k_1*sin(gamma));
+      Matrix3d R;
+      double theta_d = ref_point.z();
+      R << cos(theta_d), sin(theta_d), 0,
+          -sin(theta_d), cos(theta_d), 0,
+          0, 0, 1;
+      Eigen::Vector3d r_pose;
+      tf::pointMsgToEigen(robot_pose_.pose.position, r_pose);
+      r_pose.z() = tf::getYaw(robot_pose_.pose.orientation);
+      Eigen::Vector3d e_diff = r_pose-ref_point;
+      Vector3d err_traj = R*e_diff;
 
 
-        //adaptif
-        double Vl = vel_law.x() + -C*vel_law.z();
-        double Vr = vel_law.x() + C*vel_law.z();
+      updateControl();
+      publishSpeed();
 
-        double vreq = max(abs(Vl), abs(Vr));
-        double corr_factor = v_max/vreq;
 
-        if(corr_factor<1)
+      //update next target
+      if(err_traj.norm() < 0.001)
+      {
+        if(current_index < traj_point.size())
+          current_index++;
+        else
         {
-            vel_law.x() =rho*((k_2*corr_factor)*(gamma+robot_heading)*sin(gamma)-(k_1*corr_factor)*cos(gamma));
-            vel_law.z() = (rho/XICR)*((k_2*corr_factor)*(gamma+robot_heading)*cos(gamma)+(k_1*corr_factor)*sin(gamma));
+          current_index = 0;
+          stop=true;
         }
+
+        finished=true;
+      }
+
+      ros::spinOnce();
+      r.sleep();
     }
-
-    Vector3d getNextPoint()
-    {
-
-    }
-
-    void mainLoop()
-    {
-        ros::Rate r(50);  // 50.0
-
-        while(ros::ok())
-        {
-            Vector3d ref_point;
-//            if(current_index < traj_point.size() && !finished)
-//            {
-//                ref_point = traj_point[current_index];
-//            }
-
-//            else
-//                current_index = 0;
-            Matrix3d R;
-            double theta_d = ref_point.z();
-            R << cos(theta_d), sin(theta_d), 0,
-                 -sin(theta_d), cos(theta_d), 0,
-                 0, 0, 1;
-            Eigen::Vector3d r_pose;
-            tf::pointMsgToEigen(robot_pose_.pose.position, r_pose);
-            r_pose.z() = tf::getYaw(robot_pose_.pose.orientation);
-            Eigen::Vector3d e_diff = r_pose-ref_point;
-            Vector3d err_traj = R*e_diff;
-
-
-            updateControl(err_traj);
-            //publish speed
-
-            //update next target
-            if(err_traj.norm() < 0.001)
-                if(current_index < traj_point.size())
-                    current_index++;
-                else
-                    current_index = 0;
-
-            ros::spinOnce();
-            r.sleep();
-        }
-    }
+  }
 
 
 
@@ -281,16 +327,16 @@ public:
 
 int main(int argc, char** argv)
 {
-    ros::init(argc, argv, "robot_skid_controller");
+  ros::init(argc, argv, "robot_skid_controller");
 
-    ros::NodeHandle n;
-    //    SummitXLControllerClass sxlrc(n);
+  ros::NodeHandle n;
+  SkidController controller(n);
 
 
-    // ros::ServiceServer service = n.advertiseService("set_odometry", &summit_xl_node::set_odometry, &sxlc);
-    //    sxlrc.spin();
+  // ros::ServiceServer service = n.advertiseService("set_odometry", &summit_xl_node::set_odometry, &sxlc);
+  controller.mainLoop();
 
-    return (0);
+  return (0);
 
 
 }

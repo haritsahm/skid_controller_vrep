@@ -1,0 +1,9 @@
+<launch>
+
+
+<rosparam command="load" file="$(find robot_skid_controller)/config/summit_xl_robot_control.yaml" />
+
+<param name="config_file_path"          value="$(find robot_skid_controller)/config/config.yaml"/>
+<node name="robot_skid_controller" pkg="robot_skid_controller" type="robot_skid_controller_node" output="screen"/>
+
+</launch>

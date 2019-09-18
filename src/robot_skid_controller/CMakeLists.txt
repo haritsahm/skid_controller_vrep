@@ -11,6 +11,7 @@ find_package(catkin REQUIRED roscpp geometry_msgs std_msgs sensor_msgs tf nav_ms
                 eigen_conversions)
 
 find_package(Eigen3)
+find_package(yaml-cpp)
 
 
 ###################################
@@ -39,6 +40,7 @@ include_directories(
 # include
  ${catkin_INCLUDE_DIRS}
  ${Eigen3_INCLUDE_DIRS}
+ ${YAML_CPP_INCLUDE_DIR}
 )
 
 ## Declare a C++ library
@@ -70,5 +72,6 @@ include_directories(
  target_link_libraries(${PROJECT_NAME}_node
    ${catkin_LIBRARIES}
    ${Eigen3_LIBRARIES}
+   ${YAML_CPP_LIBRARIES}
  )
 
