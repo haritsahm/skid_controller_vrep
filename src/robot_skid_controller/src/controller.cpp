@@ -15,6 +15,7 @@
 #include <geometry_msgs/TransformStamped.h>
 #include <std_msgs/Float64.h>
 #include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <eigen_conversions/eigen_msg.h>
 #include <nav_msgs/Odometry.h>
@@ -104,6 +105,7 @@ public:
 
   // Broadcaster for odom tf
   tf::TransformBroadcaster odom_broadcaster;
+    tf::TransformListener listener;
 
   // path trajectory point
   std::vector<Eigen::Vector3d> traj_point;
@@ -219,11 +221,11 @@ public:
     robot_pos = robot_pose_.pose.position;
   }
 
-  void updateControl()
+  void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot)
   {
-    double robot_heading = tf::getYaw(robot_pose_.pose.orientation);
-    rho = SGN(robot_pos.x)*sqrt(pow(robot_pos.x,2)+pow(robot_pos.y,2));
-    gamma = atan((SGN(robot_pos.x)*robot_pos.y)/abs(robot_pos.x))-robot_heading;
+    double robot_heading = tf::getYaw(transf_rot);
+    rho = SGN(transf_pos.x())*sqrt(pow(transf_pos.x(),2)+pow(transf_pos.y(),2));
+    gamma = atan((SGN(transf_pos.x())*transf_pos.y())/abs(transf_pos.x()))-robot_heading;
 
     vel_law.x() =rho*(k_2*(gamma+robot_heading)*sin(gamma)-k_1*cos(gamma));
     vel_law.z() = (rho/XICR)*(k_2*(gamma+robot_heading)*cos(gamma)+k_1*sin(gamma));
@@ -278,6 +280,17 @@ public:
 
     while(ros::ok())
     {
+
+      tf::StampedTransform transform;
+      try{
+        listener.lookupTransform("robot_base", "world",
+                                 ros::Time(0), transform);
+      }
+      catch (tf::TransformException ex){
+        ROS_ERROR("%s",ex.what());
+        ros::Duration(1.0).sleep();
+      }
+
       Vector3d ref_point;
 
       if(finished)
@@ -286,24 +299,26 @@ public:
         finished=false;
       }
 
-      Matrix3d R;
-      double theta_d = ref_point.z();
-      R << cos(theta_d), sin(theta_d), 0,
-          -sin(theta_d), cos(theta_d), 0,
-          0, 0, 1;
-      Eigen::Vector3d r_pose;
-      tf::pointMsgToEigen(robot_pose_.pose.position, r_pose);
-      r_pose.z() = tf::getYaw(robot_pose_.pose.orientation);
-      Eigen::Vector3d e_diff = r_pose-ref_point;
-      Vector3d err_traj = R*e_diff;
+      Eigen::Affine3d robot_pos;
 
+      tf::Quaternion transf_rot; transf_rot = transform.getRotation();
+      Eigen::Quaterniond robot_rot(transf_rot.w(), transf_rot.x(), transf_rot.y(), transf_rot.z());
 
-      updateControl();
+      tf::Vector3 transf_pos = transform.getOrigin();
+      robot_pos.translation() = Eigen::Vector3d(transf_pos.x(), transf_pos.y(), transf_pos.z());
+      robot_pos.linear() = robot_rot.toRotationMatrix();
+
+      Eigen::Vector3d e_diff = robot_pos.inverse()*ref_point;
+      double err_traj = atan2(e_diff.y(), e_diff.x());
+
+      Eigen::Vector3d error_traj(e_diff.x(), e_diff.y(), err_traj);
+
+      updateControl(transf_pos, transf_rot);
       publishSpeed();
 
 
       //update next target
-      if(err_traj.norm() < 0.001)
+      if(error_traj.norm() < 0.001)
       {
         if(current_index < traj_point.size())
           current_index++;
