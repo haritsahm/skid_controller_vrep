@@ -4,9 +4,11 @@
 #include <vector>
 #include <algorithm>
 #include <yaml-cpp/yaml.h>
+#include <fstream>
 
 #include <ros/ros.h>
 #include <ros/param.h>
+#include <ros/package.h>
 #include <sensor_msgs/JointState.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Pose.h>
@@ -105,10 +107,10 @@ public:
 
   // Broadcaster for odom tf
   tf::TransformBroadcaster odom_broadcaster;
-    tf::TransformListener listener;
+  tf::TransformListener listener;
 
   // path trajectory point
-  std::vector<Eigen::Vector3d> traj_point;
+  std::vector<Eigen::Affine3d> traj_point;
   Eigen::Vector3d vel_law;
   int num_points, current_index;
   bool finished;
@@ -125,6 +127,9 @@ public:
     string config_path = "";
     node_handle_.param<std::string>("config_file_path", config_path, "");
     loadConfig(config_path);
+    std::string bezier_path = ros::package::getPath("robot_skid_controller") + "/path_bezier_points.csv";
+    std::cout << "bezier Path " << bezier_path << std::endl;
+    loadPath(bezier_path);
     // Skid configuration - topics
     private_node_handle_.param<std::string>("frw_vel_topic", frw_vel_topic_, "/summit_xl_robot_control/joint_frw_velocity_controller/command");
     private_node_handle_.param<std::string>("flw_vel_topic", flw_vel_topic_, "/summit_xl_robot_control/joint_flw_velocity_controller/command");
@@ -141,9 +146,9 @@ public:
     private_node_handle_.param<std::string>("joint_camera_pan", joint_camera_pan, "joint_camera_pan");
     private_node_handle_.param<std::string>("joint_camera_tilt", joint_camera_tilt, "joint_camera_tilt");
 
-//    private_node_handle_.param("publish_odom_tf", publish_odom_tf_, false);
-//    if (publish_odom_tf_) ROS_INFO("PUBLISHING odom->base_footprin tf");
-//    else ROS_INFO("NOT PUBLISHING odom->base_footprint tf");
+    //    private_node_handle_.param("publish_odom_tf", publish_odom_tf_, false);
+    //    if (publish_odom_tf_) ROS_INFO("PUBLISHING odom->base_footprin tf");
+    //    else ROS_INFO("NOT PUBLISHING odom->base_footprint tf");
 
     // Subscribe to joint states topic
     joint_state_sub_ = summit_xl_robot_control_node_handle.subscribe<sensor_msgs::JointState>("/summit_xl/joint_states", 1, &SkidController::jointStateCallback, this);
@@ -182,6 +187,38 @@ public:
 
   }
 
+  int loadPath(const string path)
+  {
+    // File pointer
+    fstream fin(path.c_str());
+
+    vector<string> row;
+    string word, temp;
+
+    while (fin >> temp) {
+
+      row.clear();
+      stringstream s(temp);
+      while (getline(s, word, ',')) {
+
+        // add all the column data
+        // of a row to a vector
+        row.push_back(word);
+      }
+
+      Eigen::AngleAxisd rot = Eigen::AngleAxisd(stoi(row[4])*M_PI/180, Eigen::Vector3d::UnitZ());
+      Eigen::Vector3d pos = Eigen::Vector3d(stoi(row[0]), stoi(row[1]), stoi(row[2]));
+
+      Eigen::Affine3d point_pose;
+      point_pose.translation() = pos;
+      point_pose.linear() = rot.matrix();
+
+      traj_point.push_back(point_pose);
+    }
+
+    std::cout << "Total Point : " << traj_point.size() << std::endl;
+  }
+
   void initialize()
   {
     ROS_INFO("SummitXLControllerClass::starting");
@@ -196,17 +233,9 @@ public:
     pan_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_pan)) - joint_names.begin();
     tilt_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_tilt)) - joint_names.begin();
 
-    traj_point.push_back(Vector3d(1,0,0));
-    traj_point.push_back(Vector3d(1.5,0,0));
-    traj_point.push_back(Vector3d(3,0,0));
-    traj_point.push_back(Vector3d(5,0,0));
-    traj_point.push_back(Vector3d(7,0,0));
-    traj_point.push_back(Vector3d(10,0,0));
-
-
     num_points = traj_point.size();
-    current_index = 0;
-    finished = false;
+    current_index = 10;
+    finished = true;
     rho = gamma = 0;
   }
 
@@ -221,7 +250,7 @@ public:
     robot_pos = robot_pose_.pose.position;
   }
 
-  void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot)
+  void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot, Eigen::Vector3d err_ref, double err_traj_head)
   {
     double robot_heading = tf::getYaw(transf_rot);
     rho = SGN(transf_pos.x())*sqrt(pow(transf_pos.x(),2)+pow(transf_pos.y(),2));
@@ -245,7 +274,7 @@ public:
     }
   }
 
-  Vector3d getNextPoint()
+  Affine3d getNextPoint()
   {
     return traj_point[current_index];
   }
@@ -283,7 +312,7 @@ public:
 
       tf::StampedTransform transform;
       try{
-        listener.lookupTransform("robot_base", "world",
+        listener.lookupTransform("world", "robot_base",
                                  ros::Time(0), transform);
       }
       catch (tf::TransformException ex){
@@ -291,7 +320,7 @@ public:
         ros::Duration(1.0).sleep();
       }
 
-      Vector3d ref_point;
+      Affine3d ref_point;
 
       if(finished)
       {
@@ -299,37 +328,46 @@ public:
         finished=false;
       }
 
-      Eigen::Affine3d robot_pos;
+            Eigen::Affine3d robot_pos;
 
-      tf::Quaternion transf_rot; transf_rot = transform.getRotation();
-      Eigen::Quaterniond robot_rot(transf_rot.w(), transf_rot.x(), transf_rot.y(), transf_rot.z());
+            tf::Quaternion transf_rot; transf_rot = transform.getRotation();
+            Eigen::Quaterniond robot_rot(transf_rot.w(), transf_rot.x(), transf_rot.y(), transf_rot.z());
 
-      tf::Vector3 transf_pos = transform.getOrigin();
-      robot_pos.translation() = Eigen::Vector3d(transf_pos.x(), transf_pos.y(), transf_pos.z());
-      robot_pos.linear() = robot_rot.toRotationMatrix();
+            tf::Vector3 transf_pos = transform.getOrigin();
+            robot_pos.translation() = Eigen::Vector3d(transf_pos.x(), transf_pos.y(), 0);
+            robot_pos.linear() = robot_rot.toRotationMatrix();
 
-      Eigen::Vector3d e_diff = robot_pos.inverse()*ref_point;
-      double err_traj = atan2(e_diff.y(), e_diff.x());
+            Vector3d point_ref_pos = ref_point.translation();
 
-      Eigen::Vector3d error_traj(e_diff.x(), e_diff.y(), err_traj);
+            Eigen::Vector3d e_diff = ref_point.inverse()*robot_pos.translation();
+            double err_traj = atan2(e_diff.y(), e_diff.x());
 
-      updateControl(transf_pos, transf_rot);
-      publishSpeed();
+            Eigen::Vector3d error_traj(e_diff.x(), e_diff.y(), err_traj);
+
+            updateControl(transf_pos, transf_rot, e_diff, err_traj);
+
+            std::cout << "getting to target : \n" << ref_point.matrix() << std::endl;
+            std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
+
+            std::cout << "Error : " << error_traj.norm() << std::endl;
+            publishSpeed();
 
 
-      //update next target
-      if(error_traj.norm() < 0.001)
-      {
-        if(current_index < traj_point.size())
-          current_index++;
-        else
-        {
-          current_index = 0;
-          stop=true;
-        }
+            //update next target
+            if(error_traj.norm() < 0.1)
+            {
+              if(current_index < traj_point.size())
+                current_index++;
+              else
+              {
+                current_index = 0;
+                stop=true;
+              }
 
-        finished=true;
-      }
+              std::cout << "Update Index : " << current_index << std::endl;
+
+              finished=true;
+            }
 
       ros::spinOnce();
       r.sleep();
