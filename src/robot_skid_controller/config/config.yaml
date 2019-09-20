@@ -6,8 +6,8 @@ robot_config:
     wheel_base: 0.446
     track_width: 0.408
 robot_control:
-    xicr: 0.5
+    xicr: 0.3
     C: 0.2335
     k_1: 1.2
     k_2: 1.5
-    v_max: 0.3
+    v_max: 0.2

@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <eigen3/Eigen/Eigen>
+#include <eigen3/Eigen/Geometry>
 #include <vector>
 #include <algorithm>
 #include <yaml-cpp/yaml.h>
@@ -21,6 +22,7 @@
 #include <tf2_eigen/tf2_eigen.h>
 #include <eigen_conversions/eigen_msg.h>
 #include <nav_msgs/Odometry.h>
+#include <visualization_msgs/Marker.h>
 
 using namespace std;
 using namespace Eigen;
@@ -108,9 +110,11 @@ public:
   // Broadcaster for odom tf
   tf::TransformBroadcaster odom_broadcaster;
   tf::TransformListener listener;
+  ros::Publisher marker_pub;
+  visualization_msgs::Marker points, line_strip, line_list;
 
   // path trajectory point
-  std::vector<Eigen::Affine3d> traj_point;
+  std::vector<Eigen::Vector3d> traj_point;
   Eigen::Vector3d vel_law;
   int num_points, current_index;
   bool finished;
@@ -162,7 +166,39 @@ public:
     ref_pos_pan_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_pan_position_controller/command", 50);
     ref_pos_tilt_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_tilt_position_controller/command", 50);
 
+    marker_pub = summit_xl_robot_control_node_handle.advertise<visualization_msgs::Marker>("visualization_marker", 10);
+
     odom_pub_ = summit_xl_robot_control_node_handle.advertise<nav_msgs::Odometry>("/summit_xl/odom", 1000);
+
+    points.header.frame_id = line_strip.header.frame_id = line_list.header.frame_id = "world";
+    points.header.stamp = line_strip.header.stamp = line_list.header.stamp = ros::Time::now();
+    points.ns = line_strip.ns = line_list.ns = "points_and_lines";
+    points.action = line_strip.action = line_list.action = visualization_msgs::Marker::ADD;
+    points.pose.orientation.w = line_strip.pose.orientation.w = line_list.pose.orientation.w = 1.0;
+
+    points.id = 0;
+    line_strip.id = 1;
+    line_list.id = 2;
+
+    // POINTS markers use x and y scale for width/height respectively
+    points.scale.x = 0.1;
+    points.scale.y = 0.1;
+
+    // LINE_STRIP/LINE_LIST markers use only the x component of scale, for the line width
+    line_strip.scale.x = 0.1;
+    line_list.scale.x = 0.1;
+
+    points.type = visualization_msgs::Marker::POINTS;
+    line_strip.type = visualization_msgs::Marker::LINE_STRIP;
+    line_list.type = visualization_msgs::Marker::LINE_LIST;
+
+    // Points are green
+    points.color.g = 1.0f;
+    points.color.a = 1.0;
+
+    // Line strip is blue
+    line_strip.color.b = 1.0;
+    line_strip.color.a = 1.0;
 
     // Subscribe to command topic
     //      cmd_sub_ = summit_xl_robot_control_node_handle.subscribe<geometry_msgs::Twist>("command", 1, &SummitXLControllerClass::commandCallback, this);
@@ -206,16 +242,25 @@ public:
         row.push_back(word);
       }
 
-      Eigen::AngleAxisd rot = Eigen::AngleAxisd(stoi(row[4])*M_PI/180, Eigen::Vector3d::UnitZ());
       Eigen::Vector3d pos = Eigen::Vector3d(stoi(row[0]), stoi(row[1]), stoi(row[2]));
 
-      Eigen::Affine3d point_pose;
-      point_pose.translation() = pos;
-      point_pose.linear() = rot.matrix();
+      geometry_msgs::Point p;
+      p.x = pos.x();
+      p.y = pos.y();
+      p.z = pos.z();
+
+      points.points.push_back(p);
+      line_strip.points.push_back(p);
+
+      // The line list needs two points for each line
+      line_list.points.push_back(p);
+      p.z += 0.5;
+      line_list.points.push_back(p);
+
+      Eigen::Vector3d point_pose(stoi(row[0]), stoi(row[1]), stoi(row[4])*M_PI/180);
 
       traj_point.push_back(point_pose);
     }
-
     std::cout << "Total Point : " << traj_point.size() << std::endl;
   }
 
@@ -234,7 +279,7 @@ public:
     tilt_pos_ = find(joint_names.begin(), joint_names.end(), string(joint_camera_tilt)) - joint_names.begin();
 
     num_points = traj_point.size();
-    current_index = 10;
+    current_index = 0;
     finished = true;
     rho = gamma = 0;
   }
@@ -250,9 +295,9 @@ public:
     robot_pos = robot_pose_.pose.position;
   }
 
-  void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot, Eigen::Vector3d err_ref, double err_traj_head)
+  void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot, double heading)
   {
-    double robot_heading = tf::getYaw(transf_rot);
+    double robot_heading = heading;//tf::getYaw(transf_rot);
     rho = SGN(transf_pos.x())*sqrt(pow(transf_pos.x(),2)+pow(transf_pos.y(),2));
     gamma = atan((SGN(transf_pos.x())*transf_pos.y())/abs(transf_pos.x()))-robot_heading;
 
@@ -260,21 +305,21 @@ public:
     vel_law.z() = (rho/XICR)*(k_2*(gamma+robot_heading)*cos(gamma)+k_1*sin(gamma));
 
 
-    //adaptif
-    double Vl = vel_law.x() + -C*vel_law.z();
-    double Vr = vel_law.x() + C*vel_law.z();
+//    //adaptif
+//    double Vl = vel_law.x() + -C*vel_law.z();
+//    double Vr = vel_law.x() + C*vel_law.z();
 
-    double vreq = max(abs(Vl), abs(Vr));
-    double corr_factor = v_max/vreq;
+//    double vreq = max(abs(Vl), abs(Vr));
+//    double corr_factor = v_max/vreq;
 
-    if(corr_factor<1)
-    {
-      vel_law.x() =rho*((k_2*corr_factor)*(gamma+robot_heading)*sin(gamma)-(k_1*corr_factor)*cos(gamma));
-      vel_law.z() = (rho/XICR)*((k_2*corr_factor)*(gamma+robot_heading)*cos(gamma)+(k_1*corr_factor)*sin(gamma));
-    }
+//    if(corr_factor<1)
+//    {
+//      vel_law.x() =rho*((k_2*corr_factor)*(gamma+robot_heading)*sin(gamma)-(k_1*corr_factor)*cos(gamma));
+//      vel_law.z() = (rho/XICR)*((k_2*corr_factor)*(gamma+robot_heading)*cos(gamma)+(k_1*corr_factor)*sin(gamma));
+//    }
   }
 
-  Affine3d getNextPoint()
+  Vector3d getNextPoint()
   {
     return traj_point[current_index];
   }
@@ -320,7 +365,7 @@ public:
         ros::Duration(1.0).sleep();
       }
 
-      Affine3d ref_point;
+      Vector3d ref_point;
 
       if(finished)
       {
@@ -328,46 +373,70 @@ public:
         finished=false;
       }
 
-            Eigen::Affine3d robot_pos;
+      Eigen::Affine3d robot_pos;
 
-            tf::Quaternion transf_rot; transf_rot = transform.getRotation();
-            Eigen::Quaterniond robot_rot(transf_rot.w(), transf_rot.x(), transf_rot.y(), transf_rot.z());
+      tf::Quaternion transf_rot; transf_rot = transform.getRotation();
+      Eigen::Quaterniond robot_rot(transf_rot.w(), transf_rot.x(), transf_rot.y(), transf_rot.z());
 
-            tf::Vector3 transf_pos = transform.getOrigin();
-            robot_pos.translation() = Eigen::Vector3d(transf_pos.x(), transf_pos.y(), 0);
-            robot_pos.linear() = robot_rot.toRotationMatrix();
+      tf::Vector3 transf_pos = transform.getOrigin();
+      robot_pos.translation() = Eigen::Vector3d(transf_pos.x(), transf_pos.y(), 0);
+      robot_pos.linear() = robot_rot.toRotationMatrix();
 
-            Vector3d point_ref_pos = ref_point.translation();
+//      Vector3d point_ref_pos = ref_point.translation();
 
-            Eigen::Vector3d e_diff = ref_point.inverse()*robot_pos.translation();
-            double err_traj = atan2(e_diff.y(), e_diff.x());
+//      Eigen::Matrix3d rot_mat = ref_point.linear();
+//      Vector3d ea = rot_mat.eulerAngles(0,1,2);
+//      std::cout << "Angle : "<< ea.y()*180/M_PI << std::endl;
 
-            Eigen::Vector3d error_traj(e_diff.x(), e_diff.y(), err_traj);
+//      Eigen::Vector3d e_diff = ref_point.inverse()*robot_pos.translation();
+//      double err_traj = atan2(e_diff.y(), e_diff.x());
 
-            updateControl(transf_pos, transf_rot, e_diff, err_traj);
+//      Eigen::Vector3d error_traj(e_diff.x(), e_diff.y(), err_traj);
 
-            std::cout << "getting to target : \n" << ref_point.matrix() << std::endl;
-            std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
+      Vector3d robot_euler = robot_rot.toRotationMatrix().eulerAngles(0, 1, 2);
 
-            std::cout << "Error : " << error_traj.norm() << std::endl;
-            publishSpeed();
+      std::cout << "robot Euler : \n" << robot_euler*(180/M_PI) << std::endl;
+
+      Matrix3d rot;
+      double c_ref = cos(ref_point.z());
+      double s_ref = sin(ref_point.z());
+      Vector3d err_pos = robot_pos.translation()-Eigen::Vector3d(ref_point.x(), ref_point.y(), 0);
+      rot << c_ref, s_ref, 0,
+             -s_ref, c_ref, 0,
+             0,0,1;
+
+      Vector3d err_vec = rot*err_pos;
+
+      err_vec.z() = robot_euler.z() - ref_point.z();
 
 
-            //update next target
-            if(error_traj.norm() < 0.1)
-            {
-              if(current_index < traj_point.size())
-                current_index++;
-              else
-              {
-                current_index = 0;
-                stop=true;
-              }
+      updateControl(transf_pos, transf_rot, robot_euler.z());
 
-              std::cout << "Update Index : " << current_index << std::endl;
+      std::cout << "getting to target : \n" << ref_point.matrix() << std::endl;
+      std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
+      std::cout << "Angle Error : " << err_vec.z() << std::endl;
+      std::cout << "Error : " << err_vec.norm() << std::endl;
+//      publishSpeed();
 
-              finished=true;
-            }
+
+      //update next target
+      if(err_vec.norm() < 0.1)
+      {
+        if(current_index < traj_point.size())
+          current_index++;
+        else
+        {
+          current_index = 0;
+          stop=true;
+        }
+
+        std::cout << "Update Index : " << current_index << std::endl;
+
+        finished=true;
+      }
+
+      marker_pub.publish(points);
+      marker_pub.publish(line_strip);
 
       ros::spinOnce();
       r.sleep();

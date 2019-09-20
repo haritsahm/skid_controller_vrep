@@ -57,6 +57,7 @@
      <depend>nav_msgs</depend>
      <depend>eigen_conversions</depend>
      <depend>roslib</depend>
+     <depend>visualization_msgs</depend>
 
 
 

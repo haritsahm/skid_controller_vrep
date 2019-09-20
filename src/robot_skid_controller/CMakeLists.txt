@@ -8,7 +8,7 @@ project(robot_skid_controller)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED roscpp geometry_msgs std_msgs sensor_msgs tf nav_msgs
-                eigen_conversions roslib)
+                eigen_conversions roslib visualization_msgs)
 
 find_package(Eigen3)
 find_package(yaml-cpp)

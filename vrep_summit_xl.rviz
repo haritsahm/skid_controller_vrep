@@ -7,13 +7,14 @@ Panels:
         - /Global Options1
         - /Status1
         - /LaserScan1
-        - /LaserScan1/Status1
         - /Range1
         - /TF1
-        - /TF1/Status1
         - /TF1/Frames1
+        - /Marker1
+        - /Marker1/Status1
+        - /Marker1/Namespaces1
       Splitter Ratio: 0.5
-    Tree Height: 846
+    Tree Height: 835
 Toolbars:
   toolButtonStyle: 2
 Visualization Manager:
@@ -81,27 +82,31 @@ Visualization Manager:
       Enabled: true
       Frame Timeout: 15
       Frames:
-        All Enabled: true
+        All Enabled: false
         bar_bl_joint:
-          Value: true
+          Value: false
         bar_br_joint:
-          Value: true
+          Value: false
         bar_fl_joint:
-          Value: true
+          Value: false
         bar_fr_joint:
-          Value: true
+          Value: false
+        front_proximity_sensor:
+          Value: false
         laser_scan:
-          Value: true
+          Value: false
         proximity_sensor:
-          Value: true
+          Value: false
         ptz_camera:
-          Value: true
+          Value: false
         ptz_pan_link:
-          Value: true
+          Value: false
         ptz_tilt_link:
-          Value: true
+          Value: false
         robot_base:
           Value: true
+        side_proximity_sensor:
+          Value: false
         world:
           Value: true
       Marker Scale: 1
@@ -120,6 +125,8 @@ Visualization Manager:
               {}
             bar_fr_joint:
               {}
+            front_proximity_sensor:
+              {}
             laser_scan:
               {}
             proximity_sensor:
@@ -128,7 +135,17 @@ Visualization Manager:
               ptz_tilt_link:
                 ptz_camera:
                   {}
+            side_proximity_sensor:
+              {}
       Update Interval: 0
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /robot_skid_controller/visualization_marker
+      Name: Marker
+      Namespaces:
+        points_and_lines: true
+      Queue Size: 100
       Value: true
   Enabled: true
   Global Options:
@@ -143,33 +160,33 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 4.48437929
+      Distance: 1.09187233
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: 0.40798074
-        Y: 0.445459843
-        Z: -0.779387832
+        X: 0.505168259
+        Y: 0.611017883
+        Z: 1.18250024
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.0500000007
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.00999999978
-      Pitch: 0.559797287
+      Pitch: 0.604799032
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 3.99356437
+      Yaw: 1.35537028
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1056
+  Height: 1053
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000016a000003dafc0200000001fb000000100044006900730070006c0061007900730100000028000003da000000d700ffffff000005cf000003da00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
-  Width: 1855
-  X: 65
-  Y: 24
+  QMainWindow State: 000000ff00000000fd000000010000000000000171000003d2fc0200000001fb000000100044006900730070006c006100790073010000002b000003d2000000da00ffffff000005c0000003d200000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Width: 1847
+  X: 73
+  Y: 27
