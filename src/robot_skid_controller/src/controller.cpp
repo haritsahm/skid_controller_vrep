@@ -257,7 +257,7 @@ public:
       p.z += 0.5;
       line_list.points.push_back(p);
 
-      Eigen::Vector3d point_pose(stoi(row[0]), stoi(row[1]), stoi(row[4])*M_PI/180);
+      Eigen::Vector3d point_pose(stoi(row[0]), stoi(row[1]), -stoi(row[4])*M_PI/180);
 
       traj_point.push_back(point_pose);
     }
@@ -305,18 +305,18 @@ public:
     vel_law.z() = (rho/XICR)*(k_2*(gamma+robot_heading)*cos(gamma)+k_1*sin(gamma));
 
 
-//    //adaptif
-//    double Vl = vel_law.x() + -C*vel_law.z();
-//    double Vr = vel_law.x() + C*vel_law.z();
+    //adaptif
+    double Vl = vel_law.x() + -C*vel_law.z();
+    double Vr = vel_law.x() + C*vel_law.z();
 
-//    double vreq = max(abs(Vl), abs(Vr));
-//    double corr_factor = v_max/vreq;
+    double vreq = max(abs(Vl), abs(Vr));
+    double corr_factor = v_max/vreq;
 
-//    if(corr_factor<1)
-//    {
-//      vel_law.x() =rho*((k_2*corr_factor)*(gamma+robot_heading)*sin(gamma)-(k_1*corr_factor)*cos(gamma));
-//      vel_law.z() = (rho/XICR)*((k_2*corr_factor)*(gamma+robot_heading)*cos(gamma)+(k_1*corr_factor)*sin(gamma));
-//    }
+    if(corr_factor<1)
+    {
+      vel_law.x() =rho*((k_2*corr_factor)*(gamma+robot_heading)*sin(gamma)-(k_1*corr_factor)*cos(gamma));
+      vel_law.z() = (rho/XICR)*((k_2*corr_factor)*(gamma+robot_heading)*cos(gamma)+(k_1*corr_factor)*sin(gamma));
+    }
   }
 
   Vector3d getNextPoint()
@@ -412,7 +412,7 @@ public:
 
       updateControl(transf_pos, transf_rot, robot_euler.z());
 
-      std::cout << "getting to target : \n" << ref_point.matrix() << std::endl;
+      std::cout << "getting to target : " << current_index << "\n" << ref_point << std::endl;
       std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
       std::cout << "Angle Error : " << err_vec.z() << std::endl;
       std::cout << "Error : " << err_vec.norm() << std::endl;
