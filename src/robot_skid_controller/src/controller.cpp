@@ -132,7 +132,6 @@ public:
     node_handle_.param<std::string>("config_file_path", config_path, "");
     loadConfig(config_path);
     std::string bezier_path = ros::package::getPath("robot_skid_controller") + "/path_bezier_points.csv";
-    std::cout << "bezier Path " << bezier_path << std::endl;
     loadPath(bezier_path);
     // Skid configuration - topics
     private_node_handle_.param<std::string>("frw_vel_topic", frw_vel_topic_, "/summit_xl_robot_control/joint_frw_velocity_controller/command");
@@ -223,9 +222,10 @@ public:
 
   }
 
-  int loadPath(const string path)
+  void loadPath(const string path)
   {
     // File pointer
+    std::cout << "load Path" << path<< std::endl;
     fstream fin(path.c_str());
 
     vector<string> row;
@@ -236,13 +236,10 @@ public:
       row.clear();
       stringstream s(temp);
       while (getline(s, word, ',')) {
-
-        // add all the column data
-        // of a row to a vector
         row.push_back(word);
       }
 
-      Eigen::Vector3d pos = Eigen::Vector3d(stoi(row[0]), stoi(row[1]), stoi(row[2]));
+      Eigen::Vector3d pos = Eigen::Vector3d(stod(row[0]), stod(row[1]), stod(row[2]));
 
       geometry_msgs::Point p;
       p.x = pos.x();
@@ -257,7 +254,7 @@ public:
       p.z += 0.5;
       line_list.points.push_back(p);
 
-      Eigen::Vector3d point_pose(stoi(row[0]), stoi(row[1]), -stoi(row[4])*M_PI/180);
+      Eigen::Vector3d point_pose(pos.x(), pos.y(), -stod(row[4])*M_PI/180);
 
       traj_point.push_back(point_pose);
     }
@@ -297,7 +294,7 @@ public:
 
   void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot, double heading)
   {
-    double robot_heading = heading;//tf::getYaw(transf_rot);
+    double robot_heading = tf::getYaw(transf_rot);
     rho = SGN(transf_pos.x())*sqrt(pow(transf_pos.x(),2)+pow(transf_pos.y(),2));
     gamma = atan((SGN(transf_pos.x())*transf_pos.y())/abs(transf_pos.x()))-robot_heading;
 
@@ -355,6 +352,7 @@ public:
     while(ros::ok())
     {
 
+      //get robot TF wrt World
       tf::StampedTransform transform;
       try{
         listener.lookupTransform("world", "robot_base",
@@ -375,52 +373,79 @@ public:
 
       Eigen::Affine3d robot_pos;
 
+      //Convert from TF to Eigen
       tf::Quaternion transf_rot; transf_rot = transform.getRotation();
       Eigen::Quaterniond robot_rot(transf_rot.w(), transf_rot.x(), transf_rot.y(), transf_rot.z());
 
+      // Ambil posisi Robot wrt World
       tf::Vector3 transf_pos = transform.getOrigin();
       robot_pos.translation() = Eigen::Vector3d(transf_pos.x(), transf_pos.y(), 0);
       robot_pos.linear() = robot_rot.toRotationMatrix();
 
 //      Vector3d point_ref_pos = ref_point.translation();
 
-//      Eigen::Matrix3d rot_mat = ref_point.linear();
+      Eigen::Matrix3d rot_mat = robot_pos.linear();
 //      Vector3d ea = rot_mat.eulerAngles(0,1,2);
 //      std::cout << "Angle : "<< ea.y()*180/M_PI << std::endl;
 
-//      Eigen::Vector3d e_diff = ref_point.inverse()*robot_pos.translation();
+      ref_point.z() = 0;
+
+      // Get ref_point wrt robot
+      Eigen::Vector3d e_diff = robot_pos.inverse()*ref_point;
+
+      double phi = atan2(e_diff.y(), e_diff.x());
+
+      std_msgs::Float64 fr_ref_msg;
+      std_msgs::Float64 fl_ref_msg;
+
+      if(!stop)
+      {
+        fl_ref_msg.data = (0.2 + -C*0.8*phi)/(summit_xl_wheel_diameter_*0.5);
+        fr_ref_msg.data = (0.2 + C*0.8*phi)/(summit_xl_wheel_diameter_*0.5);
+      }
+
+      else
+      {
+        fr_ref_msg.data = 0;
+        fl_ref_msg.data = 0;
+      }
+
+      ref_vel_frw_.publish( fr_ref_msg );
+      ref_vel_flw_.publish( fl_ref_msg );
+      ref_vel_blw_.publish( fl_ref_msg );
+      ref_vel_brw_.publish( fr_ref_msg );
 //      double err_traj = atan2(e_diff.y(), e_diff.x());
 
 //      Eigen::Vector3d error_traj(e_diff.x(), e_diff.y(), err_traj);
 
-      Vector3d robot_euler = robot_rot.toRotationMatrix().eulerAngles(0, 1, 2);
+//      Vector3d robot_euler = robot_rot.toRotationMatrix().eulerAngles(0, 1, 2);
 
-      std::cout << "robot Euler : \n" << robot_euler*(180/M_PI) << std::endl;
+//      std::cout << "robot Euler : \n" << robot_euler*(180/M_PI) << std::endl;
 
-      Matrix3d rot;
-      double c_ref = cos(ref_point.z());
-      double s_ref = sin(ref_point.z());
-      Vector3d err_pos = robot_pos.translation()-Eigen::Vector3d(ref_point.x(), ref_point.y(), 0);
-      rot << c_ref, s_ref, 0,
-             -s_ref, c_ref, 0,
-             0,0,1;
+//      Matrix3d rot;
+//      double c_ref = cos(ref_point.z());
+//      double s_ref = sin(ref_point.z());
+//      Vector3d err_pos = robot_pos.translation()-Eigen::Vector3d(ref_point.x(), ref_point.y(), 0);
+//      rot << c_ref, s_ref, 0,
+//             -s_ref, c_ref, 0,
+//             0,0,1;
 
-      Vector3d err_vec = rot*err_pos;
+//      Vector3d err_vec = rot*err_pos;
 
-      err_vec.z() = robot_euler.z() - ref_point.z();
+//      err_vec.z() = robot_euler.z() - ref_point.z();
 
 
-      updateControl(transf_pos, transf_rot, robot_euler.z());
+//      updateControl(transf_pos, transf_rot, robot_euler.z());
 
       std::cout << "getting to target : " << current_index << "\n" << ref_point << std::endl;
       std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
-      std::cout << "Angle Error : " << err_vec.z() << std::endl;
-      std::cout << "Error : " << err_vec.norm() << std::endl;
+//      std::cout << "Angle Error : " << err_vec.z() << std::endl;
+      std::cout << "Error : /n" << e_diff << std::endl;
 //      publishSpeed();
 
 
       //update next target
-      if(err_vec.norm() < 0.1)
+      if(e_diff.norm() < 0.1)
       {
         if(current_index < traj_point.size())
           current_index++;
