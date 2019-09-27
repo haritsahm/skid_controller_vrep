@@ -11,6 +11,7 @@
 #include <ros/param.h>
 #include <ros/package.h>
 #include <sensor_msgs/JointState.h>
+#include <std_msgs/String.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Twist.h>
@@ -292,6 +293,14 @@ public:
     robot_pos = robot_pose_.pose.position;
   }
 
+  void reqStop(const std_msgs::StringConstPtr &msg)
+  {
+    if(msg->data == "Stop")
+      stop = true;
+    else if(msg->data == "Move")
+      stop = false;
+  }
+
   void updateControl(tf::Vector3 transf_pos, tf::Quaternion transf_rot, double heading)
   {
     double robot_heading = tf::getYaw(transf_rot);
@@ -400,8 +409,8 @@ public:
 
       if(!stop)
       {
-        fl_ref_msg.data = (0.2 + -C*0.8*phi)/(summit_xl_wheel_diameter_*0.5);
-        fr_ref_msg.data = (0.2 + C*0.8*phi)/(summit_xl_wheel_diameter_*0.5);
+        fl_ref_msg.data = (0.2 + -C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
+        fr_ref_msg.data = (0.2 + C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
       }
 
       else
@@ -438,21 +447,20 @@ public:
 //      updateControl(transf_pos, transf_rot, robot_euler.z());
 
       std::cout << "getting to target : " << current_index << "\n" << ref_point << std::endl;
-      std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
+//      std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
 //      std::cout << "Angle Error : " << err_vec.z() << std::endl;
-      std::cout << "Error : /n" << e_diff << std::endl;
+//      std::cout << "Error : /n" << e_diff << std::endl;
 //      publishSpeed();
 
 
       //update next target
-      if(e_diff.norm() < 0.1)
+      if(e_diff.norm() < 0.5)
       {
-        if(current_index < traj_point.size())
+        if(current_index <= traj_point.size()-1)
           current_index++;
         else
         {
           current_index = 0;
-          stop=true;
         }
 
         std::cout << "Update Index : " << current_index << std::endl;

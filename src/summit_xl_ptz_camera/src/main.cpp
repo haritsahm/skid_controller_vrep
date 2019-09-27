@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <std_msgs/String.h>
 #include <image_transport/image_transport.h>
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/Image.h>
@@ -14,6 +15,7 @@ public:
   {
     ptz_cam = it_.subscribe("summit_xl_robot/ptz_camera_raw", 10, &ImageHandler::image_subscriber, this);
     joint_state_sub_ = nh_.subscribe<sensor_msgs::JointState>("/summit_xl/joint_states", 1, &ImageHandler::jointStateCallback, this);
+    req_stop = nh_.advertise<std_msgs::String>("summit_xl_robot/req_stop", 10);
 
 
     std::vector<std::string> joint_names = joint_state_.name;
@@ -41,15 +43,20 @@ public:
       return;
     }
 
+    cv::imshow("Raw image", cv_ptr->image);
+    cv::waitKey(2);
 
 
   }
 
   void loop()
   {
+    ros::Rate rate(30);
     while(ros::ok())
     {
 
+      ros::spinOnce();
+      rate.sleep();
     }
 
     ros::shutdown();
@@ -60,6 +67,7 @@ private:
 
   image_transport::Subscriber ptz_cam;
   ros::Subscriber joint_state_sub_;
+  ros::Publisher req_stop;
   sensor_msgs::JointState joint_state_;
 
   image_transport::ImageTransport it_;
@@ -75,8 +83,6 @@ int main(int argc, char **argv)
   ros::init(argc, argv, "sumit_xl_ptz_camera");
   ros::NodeHandle nh;
   ImageHandler image_handler(nh);
-
-  //  ros::spin();
-
-  ROS_INFO("Hello world!");
+  image_handler.loop();
+  return 0;
 }
