@@ -74,8 +74,6 @@ public:
 
   // Velocity and position references to low level controllers
   ros::Publisher ref_vel_flw_, ref_vel_frw_, ref_vel_blw_, ref_vel_brw_;
-  ros::Publisher ref_pos_pan_, ref_pos_tilt_;
-
 
   // Indexes to joint_states
   int frw_vel_, flw_vel_, blw_vel_, brw_vel_;
@@ -123,6 +121,7 @@ public:
   double k_1, k_2;
   double C, v_max;
   bool stop;
+  double prev_index;
 
   SkidController(ros::NodeHandle h) :
     node_handle_(h),  private_node_handle_("~")
@@ -146,10 +145,6 @@ public:
     private_node_handle_.param<std::string>("joint_back_left_wheel", joint_back_left_wheel, "joint_back_left_wheel");
     private_node_handle_.param<std::string>("joint_back_right_wheel", joint_back_right_wheel, "joint_back_right_wheel");
 
-    // PTZ topics
-    private_node_handle_.param<std::string>("joint_camera_pan", joint_camera_pan, "joint_camera_pan");
-    private_node_handle_.param<std::string>("joint_camera_tilt", joint_camera_tilt, "joint_camera_tilt");
-
     //    private_node_handle_.param("publish_odom_tf", publish_odom_tf_, false);
     //    if (publish_odom_tf_) ROS_INFO("PUBLISHING odom->base_footprin tf");
     //    else ROS_INFO("NOT PUBLISHING odom->base_footprint tf");
@@ -162,9 +157,6 @@ public:
     ref_vel_flw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_flw_velocity_controller/command", 50);
     ref_vel_blw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_blw_velocity_controller/command", 50);
     ref_vel_brw_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_brw_velocity_controller/command", 50);
-
-    ref_pos_pan_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_pan_position_controller/command", 50);
-    ref_pos_tilt_ = summit_xl_robot_control_node_handle.advertise<std_msgs::Float64>( "/summit_xl_robot_control/joint_tilt_position_controller/command", 50);
 
     marker_pub = summit_xl_robot_control_node_handle.advertise<visualization_msgs::Marker>("visualization_marker", 10);
 
@@ -199,6 +191,8 @@ public:
     // Line strip is blue
     line_strip.color.b = 1.0;
     line_strip.color.a = 1.0;
+
+    prev_index = 0;
 
     // Subscribe to command topic
     //      cmd_sub_ = summit_xl_robot_control_node_handle.subscribe<geometry_msgs::Twist>("command", 1, &SummitXLControllerClass::commandCallback, this);
@@ -409,8 +403,8 @@ public:
 
       if(!stop)
       {
-        fl_ref_msg.data = (0.2 + -C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
-        fr_ref_msg.data = (0.2 + C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
+        fl_ref_msg.data = (0.3 + -C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
+        fr_ref_msg.data = (0.3 + C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
       }
 
       else
@@ -446,7 +440,11 @@ public:
 
 //      updateControl(transf_pos, transf_rot, robot_euler.z());
 
-      std::cout << "getting to target : " << current_index << "\n" << ref_point << std::endl;
+      if(current_index != prev_index)
+      {
+        std::cout << "getting to target : " << current_index << "\n" << ref_point << std::endl;
+        prev_index = current_index;
+      }
 //      std::cout << "from position : \n" << robot_pos.matrix() << std::endl;
 //      std::cout << "Angle Error : " << err_vec.z() << std::endl;
 //      std::cout << "Error : /n" << e_diff << std::endl;
@@ -456,7 +454,7 @@ public:
       //update next target
       if(e_diff.norm() < 0.5)
       {
-        if(current_index <= traj_point.size()-1)
+        if(current_index < traj_point.size()-1)
           current_index++;
         else
         {
