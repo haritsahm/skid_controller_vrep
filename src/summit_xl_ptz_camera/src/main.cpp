@@ -12,6 +12,7 @@
 #include <string>
 #include <iostream>
 #include <stdlib.h>
+#include <cmath>
 
 using namespace cv;
 
@@ -26,7 +27,7 @@ public:
   {
     ptz_cam = it_.subscribe("summit_xl_robot/ptz_camera_raw", 10, &ImageHandler::image_subscriber, this);
     joint_state_sub_ = nh_.subscribe<sensor_msgs::JointState>("/summit_xl/joint_states", 1, &ImageHandler::jointStateCallback, this);
-    ros::Subscriber laser_scan_sub_ = nh_.subscribe<sensor_msgs::LaserScan>("/summit_xl/summit_xl/laser_scan", 1, &ImageHandler::laserScanCallback, this);
+    laser_scan_sub_ = nh_.subscribe<sensor_msgs::LaserScan>("/summit_xl_robot/laser_scan", 1, &ImageHandler::laserScanCallback, this);
     req_stop = nh_.advertise<std_msgs::String>("summit_xl_robot/req_stop", 10);
 
 
@@ -121,6 +122,9 @@ public:
          circle( drawing, mc[i], 4, color, -1, 8, 0 );
        }
 
+    float joint_pan_ =  joint_state_.position[4];
+    float joint_tilt_ =  joint_state_.position[5];
+
     std::vector<Point2f> point_angle(mc.size());
     for(int idx=0; idx< mc.size();idx++)
     {
@@ -130,11 +134,22 @@ public:
 
       point_angle[idx].x = -atan(mc_norm.x * tan(FOV_WIDTH));
       point_angle[idx].y = -atan(mc_norm.y * tan(FOV_HEIGHT));
+
+      if(std::isnan(point_angle[idx].x) || std::isnan(point_angle[idx].y)) continue;
+
+      double err_angle = point_angle[idx].x + joint_pan_;
+
+      double scan_range = laser_data.angle_max-laser_data.angle_min;
+      int data_index = int(floor((err_angle-(laser_data.angle_min))/laser_data.angle_increment));
+
+      double dist = laser_data.ranges[data_index];
+//      std::cout << "err_angle : " << err_angle << std::endl;
+      std::cout << err_angle << " || " << " index " << data_index << " :" << dist << std::endl;
     }
 
 
 
-    cv::imshow("Flood Fill", im_floodfill);
+    cv::imshow("Flood Fill", drawing);
     cv::imshow(window_detection_name, thres_image);
     cv::waitKey(2);
   }
@@ -179,7 +194,7 @@ private:
   ros::NodeHandle nh_;
 
   image_transport::Subscriber ptz_cam;
-  ros::Subscriber joint_state_sub_;
+  ros::Subscriber joint_state_sub_, laser_scan_sub_;
   ros::Publisher req_stop;
   ros::Publisher ref_pos_pan_, ref_pos_tilt_;
   sensor_msgs::JointState joint_state_;
