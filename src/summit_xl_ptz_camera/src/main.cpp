@@ -4,6 +4,7 @@
 #include <cv_bridge/cv_bridge.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/JointState.h>
+#include <sensor_msgs/LaserScan.h>
 #include <std_msgs/Float64.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgproc.hpp>
@@ -19,22 +20,26 @@ class ImageHandler
 public:
   ImageHandler(const ros::NodeHandle &nh)
     : nh_(nh),
-      it_(nh_)
+      it_(nh_),
+      FOV_WIDTH(32.0 * M_PI / 180),
+      FOV_HEIGHT(32.0 * M_PI / 180)
   {
     ptz_cam = it_.subscribe("summit_xl_robot/ptz_camera_raw", 10, &ImageHandler::image_subscriber, this);
     joint_state_sub_ = nh_.subscribe<sensor_msgs::JointState>("/summit_xl/joint_states", 1, &ImageHandler::jointStateCallback, this);
+    ros::Subscriber laser_scan_sub_ = nh_.subscribe<sensor_msgs::LaserScan>("/summit_xl/summit_xl/laser_scan", 1, &ImageHandler::laserScanCallback, this);
     req_stop = nh_.advertise<std_msgs::String>("summit_xl_robot/req_stop", 10);
 
 
     std::vector<std::string> joint_names = joint_state_.name;
     // For publishing the ptz joint state
-    pan_pos_ = std::find(joint_names.begin(), joint_names.end(), std::string("joint_camera_pan")) - joint_names.begin();
-    tilt_pos_ = std::find(joint_names.begin(), joint_names.end(), std::string("joint_camera_tilt")) - joint_names.begin();
+    pan_pos_ = std::find(joint_names.begin(), joint_names.end(), std::string("joint_ptz_pan")) - joint_names.begin();
+    tilt_pos_ = std::find(joint_names.begin(), joint_names.end(), std::string("joint_ptz_tilt")) - joint_names.begin();
 
     ref_pos_pan_ = nh_.advertise<std_msgs::Float64>( "/summit_xl_robot_control/ptz_pan_joint/command", 50);
     ref_pos_tilt_ = nh_.advertise<std_msgs::Float64>( "/summit_xl_robot_control/ptz_tilt_joint/command", 50);
 
-    low_H = low_S = low_V = 0;
+    low_H = 31; low_S = 146; low_V = 0;
+    high_H = 129; high_S = 215; high_V=255;
     prev_pan_val = prev_tilt_val = tilt_val = 0;
     pan_val = 90;
     image_received = false;
@@ -50,14 +55,16 @@ public:
     createTrackbar("High V", window_detection_name, &high_V, max_value);
     createTrackbar("Pan", window_detection_name, &pan_val, 180);
     createTrackbar("Tilt", window_detection_name, &tilt_val, 60);
-
-
-
   }
 
   void jointStateCallback(const sensor_msgs::JointStateConstPtr& msg)
   {
     joint_state_ = *msg;
+  }
+
+  void laserScanCallback(const sensor_msgs::LaserScanConstPtr &msg)
+  {
+    laser_data = *msg;
   }
 
   void image_subscriber(const sensor_msgs::ImageConstPtr& msg)
@@ -93,7 +100,7 @@ public:
     std::vector<std::vector<Point> > contours;
     std::vector<Vec4i> hierarchy;
 
-    findContours( im_floodfill_inv, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+    findContours( im_floodfill_inv, contours, hierarchy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
 
     /// Get the moments
     std::vector<Moments> mu(contours.size() );
@@ -114,8 +121,20 @@ public:
          circle( drawing, mc[i], 4, color, -1, 8, 0 );
        }
 
+    std::vector<Point2f> point_angle(mc.size());
+    for(int idx=0; idx< mc.size();idx++)
+    {
+      Point2f mc_norm;
+      mc_norm.x = mc[idx].x / image_in.cols * 2 - 1;    // x (-1 ~ 1)
+      mc_norm.y = mc[idx].y / image_in.rows * 2 - 1;    // y (-1 ~ 1)
 
-    cv::imshow("Flood Fill", drawing);
+      point_angle[idx].x = -atan(mc_norm.x * tan(FOV_WIDTH));
+      point_angle[idx].y = -atan(mc_norm.y * tan(FOV_HEIGHT));
+    }
+
+
+
+    cv::imshow("Flood Fill", im_floodfill);
     cv::imshow(window_detection_name, thres_image);
     cv::waitKey(2);
   }
@@ -164,6 +183,7 @@ private:
   ros::Publisher req_stop;
   ros::Publisher ref_pos_pan_, ref_pos_tilt_;
   sensor_msgs::JointState joint_state_;
+  sensor_msgs::LaserScan laser_data;
 
   image_transport::ImageTransport it_;
   bool image_received;
@@ -176,8 +196,10 @@ private:
   const int max_value = 255;
   const cv::String window_detection_name = "Object Detection";
   int low_H, low_S, low_V;
-  int high_H = max_value_H, high_S = max_value, high_V = max_value;
+  int high_H, high_S, high_V;
   int pan_val, tilt_val, prev_pan_val, prev_tilt_val;
+
+  double FOV_WIDTH, FOV_HEIGHT;
 
 
 
