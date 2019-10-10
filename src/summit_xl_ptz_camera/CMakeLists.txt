@@ -8,10 +8,11 @@ project(summit_xl_ptz_camera)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  roscpp image_transport sensor_msgs roslib std_msgs cv_bridge
+  roscpp image_transport sensor_msgs roslib std_msgs cv_bridge tf tf2
 )
 
 find_package(OpenCV REQUIRED)
+find_package(Eigen3)
 
 ###################################
 ## catkin specific configuration ##
@@ -54,4 +55,5 @@ include_directories(
  target_link_libraries(${PROJECT_NAME}_node
    ${catkin_LIBRARIES}
    ${OpenCV_LIBRARIES}
+   ${Eigen3_LIBRARIES}
  )

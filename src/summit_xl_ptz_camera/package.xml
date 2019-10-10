@@ -55,6 +55,8 @@
   <depend>sensor_msgs</depend>
   <depend>roslib</depend>
   <depend>std_msgs</depend>
+  <depend>tf</depend>
+  <depend>tf2</depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

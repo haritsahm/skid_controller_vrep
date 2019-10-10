@@ -79,6 +79,11 @@ public:
   int frw_vel_, flw_vel_, blw_vel_, brw_vel_;
   int pan_pos_, tilt_pos_;
 
+  //PID Control
+  double kP, kI, kD;
+  double prevError, prevI;
+  double Vx;
+
   // Robot Speeds
   Eigen::Vector3d curr_vel;
   Eigen::Quaterniond curr_orientation;
@@ -193,6 +198,7 @@ public:
     line_strip.color.a = 1.0;
 
     prev_index = 0;
+    prevError = 0;
 
     // Subscribe to command topic
     //      cmd_sub_ = summit_xl_robot_control_node_handle.subscribe<geometry_msgs::Twist>("command", 1, &SummitXLControllerClass::commandCallback, this);
@@ -214,6 +220,12 @@ public:
     k_1 = robot_control["k_1"].as<double>();
     k_2 = robot_control["k_2"].as<double>();
     v_max = robot_control["v_max"].as<double>();
+    kP = robot_control["kP"].as<double>();
+    kD = robot_control["kD"].as<double>();
+    Vx = robot_control["Vx"].as<double>();
+
+
+    std::cout << kP << std::endl;
 
   }
 
@@ -396,15 +408,19 @@ public:
       // Get ref_point wrt robot
       Eigen::Vector3d e_diff = robot_pos.inverse()*ref_point;
 
+      //error
       double phi = atan2(e_diff.y(), e_diff.x());
 
       std_msgs::Float64 fr_ref_msg;
       std_msgs::Float64 fl_ref_msg;
 
+      double gain_value = kP*phi + kD*(phi-prevError);
+      prevError = phi;
+
       if(!stop)
       {
-        fl_ref_msg.data = (0.3 + -C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
-        fr_ref_msg.data = (0.3 + C*0.85*phi)/(summit_xl_wheel_diameter_*0.5);
+        fl_ref_msg.data = (Vx + -C*gain_value*0.85)/(summit_xl_wheel_diameter_*0.5);
+        fr_ref_msg.data = (Vx + C*gain_value*0.85)/(summit_xl_wheel_diameter_*0.5);
       }
 
       else

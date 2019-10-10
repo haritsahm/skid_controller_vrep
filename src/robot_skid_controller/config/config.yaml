@@ -11,3 +11,6 @@ robot_control:
     k_1: 1.2
     k_2: 1.5
     v_max: 0.2
+    kP: 2.7
+    kD: 1.5
+    Vx : 0.5
